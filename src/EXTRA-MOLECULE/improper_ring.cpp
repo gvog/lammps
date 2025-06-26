@@ -2,7 +2,7 @@
 /* ----------------------------------------------------------------------
    LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
    https://www.lammps.org/, Sandia National Laboratories
-   LAMMPS development team: developers@lammps.org
+   Steve Plimpton, sjplimp@sandia.gov
 
    Copyright (2003) Sandia Corporation.  Under the terms of Contract
    DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
@@ -54,16 +54,12 @@ using namespace LAMMPS_NS;
 using namespace MathConst;
 using namespace MathSpecial;
 
-static constexpr double SMALL =     0.001;
+#define TOLERANCE 0.05
+#define SMALL     0.001
 
 /* ---------------------------------------------------------------------- */
 
-ImproperRing::ImproperRing(LAMMPS *lmp) : Improper(lmp)
-{
-  // the second atom in the quadruplet is the atom of symmetry
-
-  symmatoms[1] = 1;
-}
+ImproperRing::ImproperRing(LAMMPS *lmp) : Improper(lmp) {}
 
 /* ---------------------------------------------------------------------- */
 
@@ -93,7 +89,7 @@ void ImproperRing::compute(int eflag, int vflag)
    int at1[3], at2[3], at3[3], icomb;
    double   bvec1x[3], bvec1y[3], bvec1z[3],
             bvec2x[3], bvec2y[3], bvec2z[3],
-            bvec1n[3], bvec2n[3], bend_angle[3];
+            bvec1n[3], bvec2n[3], bvec_dot[3], bend_angle[3];
    double   angle_summer, angfac, cfact1, cfact2, cfact3;
    double   cjiji, ckjji, ckjkj, fix, fiy, fiz, fjx, fjy, fjz, fkx, fky, fkz;
 
@@ -135,7 +131,7 @@ void ImproperRing::compute(int eflag, int vflag)
       /* Pass the atom tags to form the necessary combinations. */
       at1[0] = i1; at2[0] = i2; at3[0] = i4;  /* ids: 1-2-9 */
       at1[1] = i1; at2[1] = i2; at3[1] = i3;  /* ids: 1-2-3 */
-      at1[2] = i4; at2[2] = i2; at3[2] = i3;  /* ids: 9-2-3 */
+      at1[2] = i3; at2[2] = i2; at3[2] = i4;  /* ids: 3-2-9 */
 
 
       /* Initialize the sum of the angles differences. */
@@ -145,27 +141,27 @@ void ImproperRing::compute(int eflag, int vflag)
       {
 
          /* Bond vector connecting the first and the second atom. */
-         bvec1x[icomb] = x[at2[icomb]][0] - x[at1[icomb]][0];
-         bvec1y[icomb] = x[at2[icomb]][1] - x[at1[icomb]][1];
-         bvec1z[icomb] = x[at2[icomb]][2] - x[at1[icomb]][2];
+         bvec1x[icomb] = x[at1[icomb]][0] - x[at2[icomb]][0];
+         bvec1y[icomb] = x[at1[icomb]][1] - x[at2[icomb]][1];
+         bvec1z[icomb] = x[at1[icomb]][2] - x[at2[icomb]][2];
          /* also calculate the norm of the vector: */
-         bvec1n[icomb] = sqrt(  bvec1x[icomb]*bvec1x[icomb]
-                              + bvec1y[icomb]*bvec1y[icomb]
-                              + bvec1z[icomb]*bvec1z[icomb]);
+         bvec1n[icomb] =  bvec1x[icomb]*bvec1x[icomb]
+                        + bvec1y[icomb]*bvec1y[icomb]
+                        + bvec1z[icomb]*bvec1z[icomb];
          /* Bond vector connecting the second and the third atom. */
          bvec2x[icomb] = x[at3[icomb]][0] - x[at2[icomb]][0];
          bvec2y[icomb] = x[at3[icomb]][1] - x[at2[icomb]][1];
          bvec2z[icomb] = x[at3[icomb]][2] - x[at2[icomb]][2];
          /* also calculate the norm of the vector: */
-         bvec2n[icomb] = sqrt(  bvec2x[icomb]*bvec2x[icomb]
-                              + bvec2y[icomb]*bvec2y[icomb]
-                              + bvec2z[icomb]*bvec2z[icomb]);
+         bvec2n[icomb] =  bvec2x[icomb]*bvec2x[icomb]
+                        + bvec2y[icomb]*bvec2y[icomb]
+                        + bvec2z[icomb]*bvec2z[icomb];
 
          /* Calculate the bending angle of the atom triad: */
-         bend_angle[icomb] = (  bvec2x[icomb]*bvec1x[icomb]
-                              + bvec2y[icomb]*bvec1y[icomb]
-                              + bvec2z[icomb]*bvec1z[icomb]);
-         bend_angle[icomb] /= (bvec1n[icomb] * bvec2n[icomb]);
+         bvec_dot[icomb]   =  bvec2x[icomb]*bvec1x[icomb]
+                            + bvec2y[icomb]*bvec1y[icomb]
+                            + bvec2z[icomb]*bvec1z[icomb];
+         bend_angle[icomb] = bvec_dot[icomb] / sqrt(bvec1n[icomb] * bvec2n[icomb]);
          if (bend_angle[icomb] >  1.0) bend_angle[icomb] -= SMALL;
          if (bend_angle[icomb] < -1.0) bend_angle[icomb] += SMALL;
 
@@ -195,34 +191,41 @@ void ImproperRing::compute(int eflag, int vflag)
       /* Take a loop over the three angles, defined by each triad: */
       for (icomb = 0; icomb < 3; icomb ++)
       {
-         /* Calculate the squares of the distances. */
-         cjiji = bvec1n[icomb] * bvec1n[icomb];  ckjkj = bvec2n[icomb] * bvec2n[icomb];
 
-         ckjji =   bvec2x[icomb] * bvec1x[icomb]
-                 + bvec2y[icomb] * bvec1y[icomb]
-                 + bvec2z[icomb] * bvec1z[icomb] ;
+         /* Calculate the derivative of the cosine of the angle with respect to
+            positions. */
+         double cal_Dtilde = bvec1n[icomb] * bvec2n[icomb];
+         if (cal_Dtilde < SMALL)
+            cal_Dtilde = SMALL;
+         
+         double inv_cal_Dtilde = 1.0 / cal_Dtilde;
+         double inv_cal_D = sqrt(inv_cal_Dtilde);
+         double pref = inv_cal_Dtilde * bend_angle[icomb];
 
-         cfact1 = angfac / (sqrt(ckjkj * cjiji));
-         cfact2 = ckjji / ckjkj;
-         cfact3 = ckjji / cjiji;
+         /* Calculate the force acted on the fist atom of the angle. */
+         fix = inv_cal_D * bvec2x[icomb] - pref * bvec2n[icomb] * bvec1x[icomb];
+         fiy = inv_cal_D * bvec2y[icomb] - pref * bvec2n[icomb] * bvec1y[icomb];
+         fiz = inv_cal_D * bvec2z[icomb] - pref * bvec2n[icomb] * bvec1z[icomb];
 
          /* Calculate the force acted on the third atom of the angle. */
-         fkx = cfact2 * bvec2x[icomb] - bvec1x[icomb];
-         fky = cfact2 * bvec2y[icomb] - bvec1y[icomb];
-         fkz = cfact2 * bvec2z[icomb] - bvec1z[icomb];
+         fkx = inv_cal_D * bvec1x[icomb] - pref * bvec1n[icomb] * bvec2x[icomb];
+         fky = inv_cal_D * bvec1y[icomb] - pref * bvec1n[icomb] * bvec2y[icomb];
+         fkz = inv_cal_D * bvec1z[icomb] - pref * bvec1n[icomb] * bvec2z[icomb];
 
-         /* Calculate the force acted on the first atom of the angle. */
-         fix = bvec2x[icomb] - cfact3 * bvec1x[icomb];
-         fiy = bvec2y[icomb] - cfact3 * bvec1y[icomb];
-         fiz = bvec2z[icomb] - cfact3 * bvec1z[icomb];
+         /* Multiply by the derivative of the potential: */
+         fix *= -angfac; 
+         fiy *= -angfac; 
+         fiz *= -angfac;
+         
+         fkx *= -angfac;
+         fky *= -angfac;
+         fkz *= -angfac;
+
 
          /* Finally, calculate the force acted on the middle atom of the angle.*/
-         fjx = - fix - fkx;  fjy = - fiy - fky;  fjz = - fiz - fkz;
-
-         /* Consider the appropriate scaling of the forces: */
-         fix *= cfact1; fiy *= cfact1; fiz *= cfact1;
-         fjx *= cfact1; fjy *= cfact1; fjz *= cfact1;
-         fkx *= cfact1; fky *= cfact1; fkz *= cfact1;
+         fjx = - (fix + fkx);  
+         fjy = - (fiy + fky);  
+         fjz = - (fiz + fkz);
 
          if      (at1[icomb] == i1)  {f1[0] += fix; f1[1] += fiy; f1[2] += fiz;}
          else if (at2[icomb] == i1)  {f1[0] += fjx; f1[1] += fjy; f1[2] += fjz;}
