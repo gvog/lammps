@@ -1025,6 +1025,7 @@ void FixBondReact::post_integrate()
     // only if both atoms list each other as winning bond partner
     // if other atom is owned by another proc, it should do same thing
 
+      fmt::print(screen, "Line 983 @ <post_integrate> routine: we have selected far or close partner, nlocal = {} \n", nlocal); 
     int temp_nattempt = 0;
     for (int i = 0; i < nlocal; i++) {
       if (partner[i] == 0) {
@@ -1089,6 +1090,7 @@ void FixBondReact::post_integrate()
     }
   }
 
+   
   // break loop if no even eligible bonding atoms were found (on any proc)
   int some_chance;
 
@@ -1303,6 +1305,7 @@ void FixBondReact::close_partner()
 
 void FixBondReact::superimpose_algorithm()
 {
+   fmt::print(screen, "Line 1263 @ <superimpose> routine: entering the superimpose function\n"); 
   const int nprocs = comm->nprocs;
   my_num_mega = 0;
   local_num_mega = 0;
@@ -1340,6 +1343,8 @@ void FixBondReact::superimpose_algorithm()
 
   attempted_rxn = 1;
 
+  fmt::print(screen, "Line 1301 @ <superimpose> routine: number of possible reactions {}\n", nreacts);
+  
   // let's finally begin the superimpose loop
   for (rxnID = 0; rxnID < nreacts; rxnID++) {
     for (lcl_inst = 0; lcl_inst < nattempt[rxnID]; lcl_inst++) {
@@ -1426,9 +1431,11 @@ void FixBondReact::superimpose_algorithm()
         for (pion = 0; pion < onemol->natoms; pion++) {
           if (pioneers[pion] || status == GUESSFAIL) {
             make_a_guess();
+	    fmt::print(screen, "Line 1390 @ <superimpose> routine: status following the make_a_guess routine: {}\n", status);
             if (status == ACCEPT || status == REJECT) break;
           }
         }
+         fmt::print(screen, "Line 1390 @ <superimpose> routine: a candidate reaction site found, status: {}\n", status);
 
         // reaction site found successfully!
         if (status == ACCEPT) {
@@ -1443,6 +1450,7 @@ void FixBondReact::superimpose_algorithm()
             my_num_mega++;
           }
         }
+        fmt::print(screen, "Line 1405 @ <superimpose> routine: the candidate reaction site continues\n");
         hang_catch++;
         // let's go ahead and catch the simplest of hangs
         //if (hang_catch > onemol->natoms*4)
@@ -1452,9 +1460,10 @@ void FixBondReact::superimpose_algorithm()
               "via at least one path that does not involve edge atoms.");
         }
       }
+      fmt::print(screen, "Line 1417 @ <superimpose> routine: What is the status now? {} \n", status);
     }
   }
-
+  fmt::print(screen, "Line 1405 @ <superimpose> routine: the candidate reaction site continues\n");
   global_megasize = 0;
 
   memory->create(local_mega_glove,max_natoms+cuff,my_num_mega,"bond/react:local_mega_glove");
@@ -1472,6 +1481,8 @@ void FixBondReact::superimpose_algorithm()
   ghost_glovecast(); // consolidate all mega_gloves to all processors
 
   MPI_Allreduce(&local_rxn_count[0],&reaction_count[0],nreacts,MPI_INT,MPI_SUM,world);
+
+   fmt::print(screen, "Line 1436 @ <superimpose> routine: number of candidate reactions {}\n", local_rxn_count[0]);
 
   int rxnflag = 0;
   int *delta_rxn;
@@ -1491,6 +1502,7 @@ void FixBondReact::superimpose_algorithm()
   std::random_device rnd;
   std::minstd_rand park_rng(rnd());
 
+   fmt::print(screen, "Line 1452 @ <superimpose> routine: we have {} reactions to perform\n", nreacts); 
   // check if we overstepped our reaction limit, via either max_rxn or rate_limit
   for (int i = 0; i < nreacts; i++) {
     int overstep = 0;
@@ -1571,6 +1583,7 @@ void FixBondReact::make_a_guess()
 
   if (status == GUESSFAIL && avail_guesses == 0) {
     status = REJECT;
+    fmt::print(screen, "Line 1544 @ <make_a_guess> routine: rejecting after a GUESSFAIL, status = {}.\n", status);
     return;
   }
 
@@ -1609,24 +1622,31 @@ void FixBondReact::make_a_guess()
     }
   }
 
+  fmt::print(screen, "Line 1583 @ <make_a_guess> routine: the status following the check of bond_react_MASTER_group is {}.\n", status);
+
   // check for same number of neighbors between unreacted mol and simulation
   if (nfirst_neighs != nxspecial[atom->map(glove[pion][1])][0]) {
     status = GUESSFAIL;
     return;
   }
+  fmt::print(screen, "Line 1583 @ <make_a_guess> routine: the status following the check for the same count of neighbors is {}.\n", status);
 
   // make sure all neighbors aren't already assigned
   // an issue discovered for coarse-grained example
   int assigned_count = 0;
-  for (int i = 0; i < nfirst_neighs; i++)
-    for (int j = 0; j < onemol->natoms; j++)
+  for (int i = 0; i < nfirst_neighs; i++) {
+    for (int j = 0; j < onemol->natoms; j++) {
+      fmt::print(screen, "Line 1597 @ <make_a_guess> routine: checking atoms {} and {}\n", xspecial[atom->map(glove[pion][1])][i], glove[j][1]);
       if (xspecial[atom->map(glove[pion][1])][i] == glove[j][1]) {
         assigned_count++;
         break;
       }
+   }  
+   }
 
   if (assigned_count == nfirst_neighs) status = GUESSFAIL;
 
+  fmt::print(screen, "Line 1602 @ <make_a_guess> routine: the status following the check of issue-free neighbors is {}.\n", status);
   // check if all neigh atom types are the same between simulation and unreacted mol
   int *mol_ntypes = new int[atom->ntypes];
   int *lcl_ntypes = new int[atom->ntypes];
@@ -1653,8 +1673,11 @@ void FixBondReact::make_a_guess()
   delete[] mol_ntypes;
   delete[] lcl_ntypes;
 
+  fmt::print(screen, "Line 1629 @ <make_a_guess> routine: the status before entering the neighbor_loop is {}.\n", status);
   // okay everything seems to be in order. let's assign some ID pairs!!!
   neighbor_loop();
+
+  fmt::print(screen, "Line 1633 @ <make_a_guess> routine: before exiting - status = {}\n", status);
 }
 
 /* ----------------------------------------------------------------------
@@ -1676,6 +1699,7 @@ void FixBondReact::neighbor_loop()
       check_a_neighbor();
     }
   }
+  //fmt::print(screen, "Line 1637 @ <neighbor_loop> routine: before exiting - status = {}\n", status);
   // status should still = PROCEED
 }
 
@@ -1721,8 +1745,10 @@ void FixBondReact::check_a_neighbor()
 
             glove_counter++;
             if (glove_counter == onemol->natoms) {
+              fmt::print(screen, "Line 1703 @ <check_a_neighbor> routine: before ring checking - status = {}\n", status);
               if (ring_check() && check_constraints()) status = ACCEPT;
               else status = GUESSFAIL;
+              fmt::print(screen, "Line 1703 @ <check_a_neighbor> routine: after ring checking - status = {}\n", status);
               return;
             }
             // status should still == PROCEED
@@ -1742,7 +1768,7 @@ void FixBondReact::check_a_neighbor()
       status = PROCEED;
     return;
   }
-
+  fmt::print(screen, "Line 1703 @ <check_a_neighbor> routine: before matching - status = {}\n", status);
   // finally ready to match non-duplicate, non-edge atom IDs!!
 
   for (int i = 0; i < nfirst_neighs; i++) {
@@ -1780,6 +1806,7 @@ void FixBondReact::check_a_neighbor()
           // ...actually that could be wrong if people get creative...shouldn't affect anything
         }
         // status should still = PROCEED
+        //fmt::print(screen, "Line 1741 @ <check_a_neighbor> routine: before exiting - status = {}\n", status);       
         return;
       }
     }
@@ -1794,16 +1821,19 @@ void FixBondReact::check_a_neighbor()
 
 void FixBondReact::crosscheck_the_neighbor()
 {
-  int nfirst_neighs = onemol_nxspecial[pion][0];
+   int nfirst_neighs = onemol_nxspecial[pion][0];
 
-  if (status == RESTORE) {
-    inner_crosscheck_loop();
-    return;
-  }
+   //fmt::print(screen, "Line 1757 @ <crosscheck_the_neighbor> routine: entering - status = {}\n", status);
+  
+    if (status == RESTORE) {
+      inner_crosscheck_loop();
+      return;
+   }
+   //> routine: after the <inner_crosscheck_loop> routine, status = {}\n", status);
 
-  for (trace = 0; trace < nfirst_neighs; trace++) {
-    if (neigh!=trace && onemol->type[(int)onemol_xspecial[pion][neigh]-1] == onemol->type[(int)onemol_xspecial[pion][trace]-1] &&
-        glove[onemol_xspecial[pion][trace]-1][0] == 0) {
+   for (trace = 0; trace < nfirst_neighs; trace++) {
+      if (neigh!=trace && onemol->type[(int)onemol_xspecial[pion][neigh]-1] == onemol->type[(int)onemol_xspecial[pion][trace]-1] &&
+         glove[onemol_xspecial[pion][trace]-1][0] == 0) {
 
       if (avail_guesses == MAXGUESS) {
         error->warning(FLERR,"Fix bond/react: Fix bond/react failed because MAXGUESS set too small. ask developer for info");
@@ -1825,6 +1855,7 @@ void FixBondReact::crosscheck_the_neighbor()
       inner_crosscheck_loop();
       return;
     }
+   //fmt::print(screen, "Line 1789 @ <crosscheck_the_neighbor> routine: exiting - status = {}\n", status);
   }
   // status is still 'PROCEED' if we are here!
 }
@@ -1906,6 +1937,7 @@ void FixBondReact::inner_crosscheck_loop()
     return;
   }
   status = CONTINUE;
+  //fmt::print(screen, "Line 1617 @ <inner_crosscheck_loop> routine: before exiting - status = {}\n", status);
 }
 
 /* ----------------------------------------------------------------------
